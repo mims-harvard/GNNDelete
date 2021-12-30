@@ -39,7 +39,7 @@ def parse_args():
                         help='number of steps for GraphSAINTRandomWalk sampler')
 
     # Training
-    parser.add_argument('--lr', type=float, default=1e-3, 
+    parser.add_argument('--lr', type=float, default=1e-4, 
                         help='initial learning rate')
     parser.add_argument('--weight_decay', type=float, default=0.0005, 
                         help='weight decay')
@@ -62,9 +62,6 @@ def parse_args():
 
     return args
 
-def get_config(args):
-    return 'test'
-    
 def get_eval_metric(node_embedding, model, dataloader, num_edge_type, num_edge_meta_type, id2rel):
     """Get performance on valid / test set"""
     
@@ -90,10 +87,11 @@ def get_eval_metric(node_embedding, model, dataloader, num_edge_type, num_edge_m
 
 
 def do_train(model, loader, valid_triplets, true_triplets, optimizer, num_nodes, args):
-    node_embedding = torch.zeros((num_nodes, args.out_dim))
+    # node_embedding = torch.zeros((num_nodes, args.out_dim))
 
     best_loss = 100000
     for epoch in trange(args.epochs, desc='Epoch'):
+        model.train()
         total_step = 0
         total_loss = 0
         for batch in loader: #, desc='Interation', leave=False):
@@ -102,7 +100,7 @@ def do_train(model, loader, valid_triplets, true_triplets, optimizer, num_nodes,
             batch = batch.to('cuda')
             embedding = model(batch.x, batch.edge_index, batch.edge_type)
             loss, label, proba = model.training_step(embedding, batch)
-            node_embedding[batch.node_id.cpu()] = embedding.detach().cpu()
+            # node_embedding[batch.node_id.cpu()] = embedding.detach().cpu()
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
@@ -119,15 +117,19 @@ def do_train(model, loader, valid_triplets, true_triplets, optimizer, num_nodes,
             ]
             tqdm.write(' | '.join(msg))
 
+            node_embedding = get_node_embedding(model, loader.data)
             valid_loss = do_eval(node_embedding, model, loader, valid_triplets, true_triplets, args, 'valid')
             if valid_loss < best_loss:
                 best_loss = valid_loss
                 best_model_state = model.state_dict()
     
-    return node_embedding, best_model_state, best_loss
+    return best_model_state, best_loss
 
 
+@torch.no_grad()
 def do_eval(node_embedding, model, loader, valid_triplets, true_triplets, args, stage='valid'):
+    model.eval()
+
     total_step = 0
     total_loss = 0
     total_auc = 0
@@ -139,43 +141,67 @@ def do_eval(node_embedding, model, loader, valid_triplets, true_triplets, args, 
     # total_hits_at_5 = 0
     # total_hits_at_10 = 0
 
-    with torch.no_grad():
-        for batch in tqdm(loader, desc='Interation', leave=False):
-            batch = batch.to('cuda')
-            embedding = node_embedding[batch.node_id].to('cuda')
-            loss, auc, aup = model.eval_step(embedding, batch, stage, valid_triplets, true_triplets)
-            # loss, auc, aup, mr, mrr, hits_at_1, hits_at_3, hits_at_5, hits_at_10 = model.eval_step(embedding, batch, stage)
+    for batch in tqdm(loader, desc='Interation', leave=False):
+        batch = batch.to('cuda')
+        embedding = node_embedding[batch.node_id].to('cuda')
+        loss, auc, aup = model.eval_step(embedding, batch, stage, valid_triplets, true_triplets)
+        # loss, auc, aup, mr, mrr, hits_at_1, hits_at_3, hits_at_5, hits_at_10 = model.eval_step(embedding, batch, stage)
 
-            total_step += 1
-            total_loss += loss.item()
-            total_auc += auc
-            total_aup += aup
-            # total_mr += mr
-            # total_mrr += mrr
-            # total_hits_at_1 += hits_at_1
-            # total_hits_at_3 += hits_at_3
-            # total_hits_at_5 += hits_at_5
-            # total_hits_at_10 += hits_at_10
+        total_step += 1
+        total_loss += loss.item()
+        total_auc += auc
+        total_aup += aup
+        # total_mr += mr
+        # total_mrr += mrr
+        # total_hits_at_1 += hits_at_1
+        # total_hits_at_3 += hits_at_3
+        # total_hits_at_5 += hits_at_5
+        # total_hits_at_10 += hits_at_10
 
-        msg = [
-            f'{stage}',
-            f'loss: {total_loss / total_step:.6f}',
-            f'auc: {total_auc / total_step:.4f}',
-            f'aup: {total_aup / total_step:.4f}',
-            # f'MR: {total_mr / total_step:.2f}',
-            # f'MRR: {total_mrr / total_step:.2f}',
-            # f'Hits@1: {total_hits_at_1 / total_step:.2%}',
-            # f'Hits@3: {total_hits_at_3 / total_step:.2%}',
-            # f'Hits@5: {total_hits_at_5 / total_step:.2%}',
-            # f'Hits@10: {total_hits_at_10 / total_step:.2%}',
-        ]
-        tqdm.write(' | '.join(msg))
+    msg = [
+        f'{stage}',
+        f'loss: {total_loss / total_step:.6f}',
+        f'auc: {total_auc / total_step:.4f}',
+        f'aup: {total_aup / total_step:.4f}',
+        # f'MR: {total_mr / total_step:.2f}',
+        # f'MRR: {total_mrr / total_step:.2f}',
+        # f'Hits@1: {total_hits_at_1 / total_step:.2%}',
+        # f'Hits@3: {total_hits_at_3 / total_step:.2%}',
+        # f'Hits@5: {total_hits_at_5 / total_step:.2%}',
+        # f'Hits@10: {total_hits_at_10 / total_step:.2%}',
+    ]
+    tqdm.write(' | '.join(msg))
     
     return total_loss / total_step
 
+@torch.no_grad()
+def get_node_embedding(model, data):
+    model.eval()
+    node_embedding = model(data.x.to('cuda'), data.edge_index.to('cuda'), data.edge_type.to('cuda'))
+
+    return node_embedding
+
+@torch.no_grad()
+def get_score(model, node_embedding, data):
+    model.eval()
+    node_embedding = node_embedding.to('cuda')
+    edge = data.edge_index.to('cuda')
+    edge_type = data.edge_type.to('cuda')
+
+    train_score = model.decode(node_embedding, edge[:, data.train_mask], edge_type[data.train_mask])
+    valid_score = model.decode(node_embedding, edge[:, data.valid_mask], edge_type[data.valid_mask])
+    test_score = model.decode(node_embedding, edge[:, data.test_mask], edge_type[data.test_mask])
+    all_score = model.decode(node_embedding, edge, edge_type)
+
+    return train_score, valid_score, test_score, all_score
+
+def get_norm(model):
+    return torch.norm(model.rgcn1.weight.cpy()) + torch.norm(model.rgcn2.weight.cpy()) + torch.norm(model.W.cpu())
+
 def main():
     args = parse_args()
-    config = get_config(args)
+    config = '-'.join([str(i) for i in 
+        [args.dataset, args.in_dim, args.hidden_dim, args.out_dim, args.epochs, args.lr]])
 
     # Dataset
     loader, valid_triplets, test_triplets, true_triplets, num_nodes, num_edges, num_edge_type = get_loader(args)
@@ -189,8 +215,9 @@ def main():
 
     # Train
     if args.init_checkpoint:
-        checkpoint = torch.load(args.checkpoint_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
+        checkpoint = torch.load(os.path.join(args.checkpoint_dir, 'test.pt'))
+        node_embedding = checkpoint['ent_emb']
+        model.load_state_dict(checkpoint['model_state'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
         loss = checkpoint['loss']
@@ -198,8 +225,10 @@ def main():
         start_epoch = 0
         loss = 0.0
 
-    node_embedding, best_model_state, best_valid_loss = do_train(model, loader, valid_triplets, true_triplets, optimizer, num_nodes, args)
-    
+    best_model_state, best_valid_loss = do_train(model, loader, valid_triplets, true_triplets, optimizer, num_nodes, args)
+    node_embedding = get_node_embedding(model, loader.data)
+    score = get_score(model, node_embedding, loader.data)
+
     # Save models and node embeddings
     ckpt = {
         'hparam': vars(args),
@@ -208,7 +237,8 @@ def main():
         'rel_emb': model.W,
         'optimizer_state_dict': optimizer.state_dict(),
         'epoch': args.epochs,
-        'loss': best_valid_loss
+        'loss': best_valid_loss,
+        'score': score
     }
     torch.save(ckpt, os.path.join(args.checkpoint_dir, config + '.pt'))
 

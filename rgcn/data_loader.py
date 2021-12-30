@@ -31,7 +31,7 @@ def generate_true_dict(all_triples):
 
     return heads, tails
 
-def get_loader(args):
+def get_loader(args, delete=[]):
     prefix = os.path.join('./data', args.dataset)
 
     # Edges
@@ -77,6 +77,14 @@ def get_loader(args):
     # Node feature
     x = torch.rand((num_nodes, args.in_dim))
 
+    # Delete edges
+    if len(delete) > 0:
+        delete_idx = torch.tensor(delete, dtype=torch.long)
+        num_train_edges = train_size // 2
+        train_mask[delete_idx] = False
+        train_mask[delete_idx + num_train_edges] = False
+        train_size -= 2 * len(delete)
+    
     node_id = torch.arange(num_nodes)
     dataset = Data(
         edge_index=edge, edge_type=edge_type, x=x, node_id=node_id, 

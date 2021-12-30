@@ -7,6 +7,8 @@ import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 
+torch.autograd.set_detect_anomaly(True)
+
 class RGCN(nn.Module):
     def __init__(self, args, num_nodes, num_edges, num_edge_type):
         super().__init__()
@@ -50,14 +52,18 @@ class RGCN(nn.Module):
         
         return torch.sigmoid(score)        
 
-    def negative_sampling(self, edge_pos):
-        '''Generate negative samples'''
+    def negative_sampling(self, edge_index, edge_type):
+        '''Generate negative samples but keep the node type the same'''
 
-        edge_neg = edge_pos.clone()
-        shuffle = torch.randperm(edge_neg.shape[0])
-        edge_neg = edge_neg[shuffle]
+        edge_index_copy = edge_index.clone()
+        for et in edge_type.unique():
+            mask = (edge_type == et)
+            old_source = edge_index_copy[0, mask]
+            new_index = torch.randperm(old_source.shape[0])
+            new_source = old_source[new_index]
+            edge_index_copy[0, mask] = new_source
         
-        return edge_neg
+        return edge_index_copy
 
     def shared_step(self, embedding, batch, stage):
         # Get data
@@ -75,7 +81,7 @@ class RGCN(nn.Module):
         # Positive and negative sample
         edge_pos = batch.edge_index[:, mask]
         edge_type = batch.edge_type[mask]
-        edge_neg = self.negative_sampling(edge_pos)
+        edge_neg = self.negative_sampling(edge_pos, edge_type)
         edge = torch.cat([edge_pos, edge_neg], dim=-1)
 
         # Edge label
