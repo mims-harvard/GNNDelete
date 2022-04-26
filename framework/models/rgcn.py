@@ -7,8 +7,6 @@ import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 
-torch.autograd.set_detect_anomaly(True)
-
 class RGCN(nn.Module):
     def __init__(self, args, num_nodes, num_edges, num_edge_type):
         super().__init__()
@@ -181,3 +179,12 @@ class RGCN(nn.Module):
         # }
 
         return loss, auc, aup#, mr, mrr, hits_at_1, hits_at_3, hits_at_5, hits_at_10
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(
+            self.parameters(),
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+        )
+
+        return [optimizer], [None]
