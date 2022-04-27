@@ -153,6 +153,7 @@ def main():
     print('Dataset:', dataset, data)
     args.in_dim = dataset.num_features
 
+    # Use proper training data for original and Dr
     if args.retrain:
         df_mask = torch.load(os.path.join(args.data_dir, args.dataset, f'df_{args.random_seed}.pt'))
         df_mask = df_mask[args.df]
@@ -162,10 +163,12 @@ def main():
         dr_mask = torch.ones(data.train_pos_edge_index.shape[1], dtype=torch.bool)
         dr_mask[df_idx_global] = False
 
-    else:
-        dr_mask = torch.ones(data.train_pos_edge_index.shape[1], dtype=torch.bool)
+        assert dr_mask.sum().item() - data.train_pos_edge_index.shape[1] - len(df_idx)
 
-    data.dr_mask = dr_mask
+        data.dtrain_mask = dr_mask
+
+    else:
+        data.dtrain_mask = torch.ones(data.train_pos_edge_index.shape[1], dtype=torch.bool)
 
     # Model
     model = GCN(args).to(device)
@@ -175,7 +178,7 @@ def main():
 
     # Train
     trainer = Trainer(args)
-    # trainer.train(model, data, optimizer, args)
+    trainer.train(model, data, optimizer, args)
 
     # Test
     trainer.test(model, data)
