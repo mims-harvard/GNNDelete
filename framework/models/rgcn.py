@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import FastRGCNConv
-import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 
@@ -31,8 +30,6 @@ class RGCN(nn.Module):
         # Decoder: DistMult
         self.W = nn.Parameter(torch.Tensor(num_edge_type, args.out_dim))
         nn.init.xavier_uniform_(self.W, gain=nn.init.calculate_gain('relu'))
-
-        # self.save_hyperparameters()
     
     def forward(self, x, edge, edge_type):
         x = self.rgcn1(x, edge, edge_type)
@@ -188,3 +185,8 @@ class RGCN(nn.Module):
         )
 
         return [optimizer], [None]
+
+
+class RGCNDelete(RGCN):
+    def __init__(self):
+        pass

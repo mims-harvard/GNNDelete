@@ -1,15 +1,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GATConv
 
 
-class GCN(nn.Module):
+class GAT(nn.Module):
     def __init__(self, args, **kwargs):
         super().__init__()
 
-        self.conv1 = GCNConv(args.in_dim, args.hidden_dim)
-        self.conv2 = GCNConv(args.hidden_dim, args.out_dim)
+        self.conv1 = GATConv(args.in_dim, args.hidden_dim)
+        self.conv2 = GATConv(args.hidden_dim, args.out_dim)
         # self.dropout = nn.Dropout(args.dropout)
 
     def forward(self, x, edge_index):

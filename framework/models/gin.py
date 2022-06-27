@@ -1,21 +1,31 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GINConv
 
-
-class GCN(nn.Module):
+        
+class GIN(nn.Module):
     def __init__(self, args, **kwargs):
         super().__init__()
 
-        self.conv1 = GCNConv(args.in_dim, args.hidden_dim)
-        self.conv2 = GCNConv(args.hidden_dim, args.out_dim)
-        # self.dropout = nn.Dropout(args.dropout)
+        self.transition = nn.Sequential(
+            nn.ReLU(),
+            nn.Dropout(p=args.dropout)
+        )
+        self.mlp1 = nn.Sequential(
+            nn.Linear(args.in_dim, args.hidden_dim), 
+            nn.ReLU(), 
+        )
+        self.conv1 = GINConv(self.mlp1)
+        self.mlp2 = nn.Sequential(
+            nn.Linear(args.hidden_dim, args.out_dim), 
+            nn.ReLU(),
+        )
+        self.conv2= GINConv(self.mlp2)
 
     def forward(self, x, edge_index):
         x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        # x = self.dropout(x)
+        x = self.transition(x)
         x = self.conv2(x, edge_index)
 
         return x
