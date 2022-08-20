@@ -7,24 +7,14 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 
 
 class RGCN(nn.Module):
-    def __init__(self, args, num_nodes, num_edges, num_edge_type):
+    def __init__(self, args, num_edge_type, **kwargs):
         super().__init__()
         self.args = args
-        self.num_nodes = num_nodes
-        self.num_edges = num_edges
         self.num_edge_type = num_edge_type
 
-        self.in_dim = args.in_dim
-        self.hidden_dim = args.hidden_dim
-        self.out_dim = args.out_dim
-
-        self.node_embedding = np.zeros((num_nodes, args.out_dim))
-
         # Encoder: RGCN
-        self.rgcn1 = FastRGCNConv(
-            args.in_dim, args.hidden_dim, num_edge_type, num_bases=args.num_bases, num_blocks=args.num_blocks)
-        self.rgcn2 = FastRGCNConv(
-            args.hidden_dim, args.out_dim, num_edge_type, num_bases=args.num_bases, num_blocks=args.num_blocks)
+        self.conv1 = FastRGCNConv(args.in_dim, args.hidden_dim, num_edge_type)
+        self.conv2 = FastRGCNConv(args.hidden_dim, args.out_dim, num_edge_type)
         self.relu = nn.ReLU()
         
         # Decoder: DistMult
@@ -32,9 +22,9 @@ class RGCN(nn.Module):
         nn.init.xavier_uniform_(self.W, gain=nn.init.calculate_gain('relu'))
     
     def forward(self, x, edge, edge_type):
-        x = self.rgcn1(x, edge, edge_type)
+        x = self.conv1(x, edge, edge_type)
         x = self.relu(x)
-        x = self.rgcn2(x, edge, edge_type)
+        x = self.conv2(x, edge, edge_type)
         out = F.log_softmax(x, dim=1)
         
         return out

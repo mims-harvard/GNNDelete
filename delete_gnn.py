@@ -20,15 +20,18 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def load_args(path):
     with open(path, 'r') as f:
-        args = json.load(f)
+        d = json.load(f)
     parser = argparse.ArgumentParser()
-    for k, v in args.items():
+    for k, v in d.items():
         parser.add_argument('--' + k, default=v)
     try:
         parser.add_argument('--df_size', default=0.5)
     except:
         pass
     args = parser.parse_args()
+
+    for k, v in d.items():
+        setattr(args, k, v)
 
     return args
 
@@ -123,28 +126,31 @@ def main():
     data.sdf_node_1hop_mask = sdf_node_1hop
     data.sdf_node_2hop_mask = sdf_node_2hop
 
-    data = data.to(device)
-
     # Model
-    if args.unlearning_model != 'retrain':
-        logits_ori = torch.load(os.path.join(original_path, 'pred_proba.pt')).to(device)
-        model_ckpt = torch.load(os.path.join(original_path, 'model_best.pt'))
-        model_args = load_args(os.path.join(original_path, 'training_args.json'))
-        model = get_model(model_args, sdf_node_1hop, sdf_node_2hop)
-        model.load_state_dict(model_ckpt['model_state'], strict=False)
-        model = model.to(device)
+    model = get_model(args, sdf_node_1hop, sdf_node_2hop)
 
+    if args.unlearning_model != 'retrain':  # Start from trained GNN model
+        if os.path.exists(os.path.join(original_path, 'pred_proba.pt')):
+            logits_ori = torch.load(os.path.join(original_path, 'pred_proba.pt')).to(device)
+        else:
+            logits_ori = None
+
+        model_ckpt = torch.load(os.path.join(original_path, 'model_best.pt'))
+        model.load_state_dict(model_ckpt['model_state'], strict=False)
+   
+    else:       # Initialize a new GNN model
+        retrain = None
+        logits_ori = None
+
+    model = model.to(device)
+
+    if 'gnndelete' in args.unlearning_model:
         parameters_to_optimize = [
             {'params': [p for n, p in model.named_parameters() if 'del' in n], 'weight_decay': 0.0}
         ]
         print('parameters_to_optimize', [n for n, p in model.named_parameters() if 'del' in n])
     
     else:
-        retrain = None
-        logits_ori = None
-        model = get_model(args, sdf_node_1hop, sdf_node_2hop)
-        model = model.to(device)
-
         parameters_to_optimize = [
             {'params': [p for n, p in model.named_parameters()], 'weight_decay': 0.0}
         ]
@@ -155,17 +161,17 @@ def main():
     wandb.watch(model, log_freq=100)
 
     # MI attack model
-    attack_model_all = MLPAttacker(args)
-    attack_ckpt = torch.load(os.path.join(attack_path_all, 'attack_model_best.pt'))
-    attack_model_all.load_state_dict(attack_ckpt['model_state'])
-    attack_model_all = attack_model_all.to(device)
+    attack_model_all = None
+    # attack_model_all = MLPAttacker(args)
+    # attack_ckpt = torch.load(os.path.join(attack_path_all, 'attack_model_best.pt'))
+    # attack_model_all.load_state_dict(attack_ckpt['model_state'])
+    # attack_model_all = attack_model_all.to(device)
 
-    attack_model_sub = MLPAttacker(args)
-    attack_ckpt = torch.load(os.path.join(attack_path_sub, 'attack_model_best.pt'))
-    attack_model_sub.load_state_dict(attack_ckpt['model_state'])
-    attack_model_sub = attack_model_sub.to(device)
-
-    print('aaaaaaaaaa', attack_model_all.fc1.weight.shape)
+    attack_model_sub = None
+    # attack_model_sub = MLPAttacker(args)
+    # attack_ckpt = torch.load(os.path.join(attack_path_sub, 'attack_model_best.pt'))
+    # attack_model_sub.load_state_dict(attack_ckpt['model_state'])
+    # attack_model_sub = attack_model_sub.to(device)
 
     # Train
     trainer = get_trainer(args)
@@ -173,14 +179,13 @@ def main():
 
     # Test
     if args.unlearning_model != 'retrain':
-        # retrain_path = os.path.join(args.checkpoint_dir, args.dataset, args.gnn, 'retrain', str(args.random_seed))
-        # retrain_ckpt = torch.load(os.path.join(retrain_path, 'model_best.pt'))
-        # retrain_args = load_args(os.path.join(retrain_path, 'training_args.json'))
-        # retrain = GCN(retrain_args)
-        # retrain.load_state_dict(retrain_ckpt['model_state'])
-        # retrain = retrain.to(device)
-        # retrain.eval()
-        retrain = None
+        retrain_path = args.checkpoint_dir.replace(args.unlearning_model, 'retrain')
+        retrain_ckpt = torch.load(os.path.join(retrain_path, 'model_best.pt'))
+        retrain_args = load_args(os.path.join(retrain_path, 'training_args.json'))
+        retrain = get_model(retrain_args)
+        retrain.load_state_dict(retrain_ckpt['model_state'])
+        retrain = retrain.to(device)
+        retrain.eval()
 
     else:
         retrain = None

@@ -10,7 +10,7 @@ class GIN(nn.Module):
 
         self.transition = nn.Sequential(
             nn.ReLU(),
-            nn.Dropout(p=args.dropout)
+            # nn.Dropout(p=args.dropout)
         )
         self.mlp1 = nn.Sequential(
             nn.Linear(args.in_dim, args.hidden_dim), 

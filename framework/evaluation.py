@@ -67,13 +67,28 @@ def verification_error(model1, model2):
     modules1 = {n: p for n, p in model1.named_parameters()}
     modules2 = {n: p for n, p in model2.named_parameters()}
 
-    all_names = set(modules1.keys()) | set(modules2.keys())
+    all_names = set(modules1.keys()) & set(modules2.keys())
+
+    print(all_names)
 
     diff = 0
     for n in all_names:
         diff += torch.norm(modules1[n] - modules2[n])
     
     return diff
+
+@torch.no_grad()
+def member_infer_attack(target_model, attack_model, data, logits=None):
+    '''Membership inference attack'''
+
+    edge = data.train_pos_edge_index[:, data.df_mask]
+    z = target_model(data.x, data.train_pos_edge_index[:, data.dr_mask])
+    feature = torch.cat([z[edge[0]], z[edge][1]], dim=-1)
+    logits = attack_model(feature)
+    _, pred = torch.max(logits, 1)
+    suc_rate = 1 - pred.float().mean()
+
+    return torch.softmax(logits, dim=-1).squeeze().tolist(), suc_rate.cpu().item()
 
 @torch.no_grad()
 def get_node_embedding_data(model, data):
@@ -142,8 +157,8 @@ def output_kldiv(model1, model2, data=None, loader=None):
         score2 = torch.hstack(score2)
     
     kldiv = F.kl_div(
-        F.log_softmax(score1),
-        F.softmax(score2)
+        F.log_softmax(score1, dim=-1),
+        F.softmax(score2, dim=-1)
     )
 
     return kldiv

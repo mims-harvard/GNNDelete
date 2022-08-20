@@ -31,7 +31,7 @@ def parse_args():
                         help='random seed')
     parser.add_argument('--batch_size', type=int, default=128, 
                         help='batch size for GraphSAINTRandomWalk sampler')
-    parser.add_argument('--walk_length', type=int, default=16,
+    parser.add_argument('--walk_length', type=int, default=2,
                         help='random walk length for GraphSAINTRandomWalk sampler')
     parser.add_argument('--num_steps', type=int, default=32,
                         help='number of steps for GraphSAINTRandomWalk sampler')
@@ -61,7 +61,15 @@ def parse_args():
     # Evaluation
     parser.add_argument('--topk', type=int, default=500, 
                         help='top k for evaluation')
+    parser.add_argument('--eval_on_cpu', type=bool, default=False, 
+                        help='whether to evaluate on CPU')
 
     args = parser.parse_args()
+
+    if 'ogbl' in args.dataset:
+        args.valid_freq = 20
+        args.epochs = 200
+        args.batch_size = args.batch_size * 16
+        args.eval_on_cpu = True
 
     return args

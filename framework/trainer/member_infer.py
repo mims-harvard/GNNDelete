@@ -120,7 +120,7 @@ class MIAttackTrainer(Trainer):
     
     def train_attack(self, model, train_loader, valid_loader, optimizer, args):
         loss_fct = nn.CrossEntropyLoss()
-        best_f1 = 0
+        best_auc = 0
         best_epoch = 0
         for epoch in trange(50, desc='Train attack model'):
             model.train()
@@ -136,11 +136,13 @@ class MIAttackTrainer(Trainer):
 
                 train_loss += loss.item()
 
-            valid_acc, valid_f1 = self.eval_attack(model, valid_loader)
+            valid_loss, valid_acc, valid_auc, valid_f1 = self.eval_attack(model, valid_loader)
 
             log = {
                 'attack_train_loss': train_loss / len(train_loader), 
+                'attack_valid_loss': valid_loss,
                 'attack_valid_acc': valid_acc, 
+                'attack_valid_auc': valid_auc, 
                 'attack_valid_f1': valid_f1}
             wandb.log(log)
             self.trainer_log['attack_log'].append(log)
@@ -149,10 +151,10 @@ class MIAttackTrainer(Trainer):
             tqdm.write(' | '.join(msg))
 
 
-            if valid_f1 > best_f1:
-                best_f1 = valid_f1
+            if valid_auc > best_auc:
+                best_auc = valid_auc
                 best_epoch = epoch
-                self.trainer_log['attack_best_f1'] = valid_f1
+                self.trainer_log['attack_best_auc'] = valid_auc
                 self.trainer_log['attack_best_epoch'] = epoch
                 
                 ckpt = {
@@ -163,10 +165,12 @@ class MIAttackTrainer(Trainer):
         
     @torch.no_grad()
     def eval_attack(self, model, eval_loader):
+        loss_fct = nn.CrossEntropyLoss()
         pred = []
         label = []
         for x, y in eval_loader:
             logits = model(x.to(device))
+            loss = loss_fct(logits, y.to(device))
             _, p = torch.max(logits, 1)
             
             pred.extend(p.cpu())
@@ -175,7 +179,7 @@ class MIAttackTrainer(Trainer):
         pred = torch.stack(pred)
         label = torch.stack(label)
 
-        return accuracy_score(label.numpy(), pred.numpy()), f1_score(label.numpy(), pred.numpy(), average='macro')
+        return loss.item(), accuracy_score(label.numpy(), pred.numpy()), roc_auc_score(label.numpy(), pred.numpy()), f1_score(label.numpy(), pred.numpy(), average='macro')
 
     @torch.no_grad()
     def prepare_attack_training_data(self, model, data, all_neg=None):
