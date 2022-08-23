@@ -64,6 +64,9 @@ def eval_lp(model, stage, data=None, loader=None):
 def verification_error(model1, model2):
     '''L2 distance between aproximate model and re-trained model'''
 
+    model1 = model1.to('cpu')
+    model2 = model2.to('cpu')
+
     modules1 = {n: p for n, p in model1.named_parameters()}
     modules2 = {n: p for n, p in model2.named_parameters()}
 

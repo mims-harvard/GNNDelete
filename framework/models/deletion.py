@@ -68,7 +68,7 @@ class GATDelete(GAT):
         self.conv1.requires_grad = False
         self.conv2.requires_grad = False
 
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, mask_1hop=None, mask_2hop=None):
         with torch.no_grad():
             x = self.conv1(x, edge_index)
         
@@ -90,7 +90,7 @@ class GINDelete(GIN):
         self.conv1.requires_grad = False
         self.conv2.requires_grad = False
 
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, mask_1hop=None, mask_2hop=None):
         with torch.no_grad():
             x = self.conv1(x, edge_index)
         
