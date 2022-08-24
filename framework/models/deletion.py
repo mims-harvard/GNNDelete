@@ -72,12 +72,12 @@ class GATDelete(GAT):
         with torch.no_grad():
             x = self.conv1(x, edge_index)
         
-        x = self.deletion1(x)
+        x = self.deletion1(x, mask_1hop)
 
         x = F.relu(x)
         
         x = self.conv2(x, edge_index)
-        x = self.deletion2(x)
+        x = self.deletion2(x, mask_2hop)
 
         return x
 
@@ -94,12 +94,12 @@ class GINDelete(GIN):
         with torch.no_grad():
             x = self.conv1(x, edge_index)
         
-        x = self.deletion1(x)
+        x = self.deletion1(x, mask_1hop)
 
         x = F.relu(x)
         
         x = self.conv2(x, edge_index)
-        x = self.deletion2(x)
+        x = self.deletion2(x, mask_2hop)
 
         return x
 
