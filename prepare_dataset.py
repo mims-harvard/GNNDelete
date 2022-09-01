@@ -16,25 +16,27 @@ from framework.utils import *
 data_dir = './data'
 df_size = [i / 100 for i in range(10)] + [i / 10 for i in range(10)] + [i for i in range(10)]       # Df_size in percentage
 seeds = [42, 21, 13, 87, 100]
-graph_datasets = ['Cora', 'PubMed', 'DBLP', 'CS', 'Physics', 'ogbl-citation2', 'ogbl-collab', 'Flickr'][:1]
+graph_datasets = ['Cora', 'PubMed', 'DBLP', 'CS', 'ogbl-citation2', 'ogbl-collab']
 kg_datasets = ['FB15k-237', 'WordNet18RR'][1:]
 os.makedirs(data_dir, exist_ok=True)
 
 
-def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_ratio: float = 0.1, two_hop_degree=None):
+def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_ratio: float = 0.1, two_hop_degree=None, kg=False):
     '''Avoid adding neg_adj_mask'''
 
     num_nodes = data.num_nodes
     row, col = data.edge_index
     edge_attr = data.edge_attr
+    edge_type = data.edge_type
     data.edge_index = data.edge_attr = data.edge_weight = data.edge_year = None
 
-    # Return upper triangular portion.
-    mask = row < col
-    row, col = row[mask], col[mask]
+    if not kg:
+        # Return upper triangular portion.
+        mask = row < col
+        row, col = row[mask], col[mask]
 
-    if edge_attr is not None:
-        edge_attr = edge_attr[mask]
+        if edge_attr is not None:
+            edge_attr = edge_attr[mask]
 
     n_v = int(math.floor(val_ratio * row.size(0)))
     n_t = int(math.floor(test_ratio * row.size(0)))
@@ -55,21 +57,36 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
 
     # Train
     r, c = row[n_v + n_t:], col[n_v + n_t:]
-    data.train_pos_edge_index = torch.stack([r, c], dim=0)
-    if edge_attr is not None:
-        out = to_undirected(data.train_pos_edge_index, edge_attr[n_v + n_t:])
-        data.train_pos_edge_index, data.train_pos_edge_attr = out
+    
+    if kg:
+        data.train_pos_edge_index = torch.cat((torch.stack([r, c], dim=0), torch.stack([r, c], dim=0)), dim=1)
+        train_edge_type = edge_type[n_v + n_t:]
+        train_rev_edge_type = edge_type + edge_type.unique().shape[0]
+        data.train_edge_type = torch.cat([train_edge_type, train_rev_edge_type], dim=0)
+    
     else:
-        data.train_pos_edge_index = to_undirected(data.train_pos_edge_index)
+        data.train_pos_edge_index = torch.stack([r, c], dim=0)
+        if edge_attr is not None:
+            out = to_undirected(data.train_pos_edge_index, edge_attr[n_v + n_t:])
+            data.train_pos_edge_index, data.train_pos_edge_attr = out
+        else:
+            data.train_pos_edge_index = to_undirected(data.train_pos_edge_index)
+
     
     # Test
     r, c = row[:n_t], col[:n_t]
     data.test_pos_edge_index = torch.stack([r, c], dim=0)
 
-    neg_edge_index = negative_sampling(
-        edge_index=data.test_pos_edge_index,
-        num_nodes=data.num_nodes,
-        num_neg_samples=data.test_pos_edge_index.shape[1])
+    if kg:
+        data.test_edge_type = edge_type[:n_t]
+        neg_edge_index = negative_sampling_kg(
+            edge_index=data.test_pos_edge_index,
+            edge_type=data.test_edge_type)
+    else:
+        neg_edge_index = negative_sampling(
+            edge_index=data.test_pos_edge_index,
+            num_nodes=data.num_nodes,
+            num_neg_samples=data.test_pos_edge_index.shape[1])
 
     data.test_neg_edge_index = neg_edge_index
 
@@ -77,10 +94,16 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
     r, c = row[n_t:n_t+n_v], col[n_t:n_t+n_v]
     data.val_pos_edge_index = torch.stack([r, c], dim=0)
 
-    neg_edge_index = negative_sampling(
-        edge_index=data.val_pos_edge_index,
-        num_nodes=data.num_nodes,
-        num_neg_samples=data.val_pos_edge_index.shape[1])
+    if kg:
+        data.val_edge_type = edge_type[n_t:n_t+n_v]
+        neg_edge_index = negative_sampling_kg(
+            edge_index=data.val_pos_edge_index,
+            edge_type=data.val_edge_type)
+    else:
+        neg_edge_index = negative_sampling(
+            edge_index=data.val_pos_edge_index,
+            num_nodes=data.num_nodes,
+            num_neg_samples=data.val_pos_edge_index.shape[1])
 
     data.val_neg_edge_index = neg_edge_index
 
@@ -89,14 +112,16 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
 def process_graph():
     for d in graph_datasets:
 
-        if d in ['Cora', 'PUbMed', 'DBLP']:
+        if d in ['Cora', 'PubMed', 'DBLP']:
             dataset = CitationFull(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
-        if d in ['CS', 'Physics']:
+        elif d in ['CS', 'Physics']:
             dataset = Coauthor(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
-        if d in ['Flickr']:
+        elif d in ['Flickr']:
             dataset = Flickr(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
-        if 'ogbl' in d:
+        elif 'ogbl' in d:
             dataset = PygLinkPropPredDataset(root=os.path.join(data_dir, d), name=d)
+        else:
+            raise NotImplementedError
 
         print('Processing:', d)
         print(dataset)
@@ -220,15 +245,24 @@ def process_kg():
 
             if d in ['FB15k-237']:
                 dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
+                data = dataset[0]
+                x = torch.arange(data.num_nodes)
+                edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
+                edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
+            
             if d in ['WordNet18RR']:
                 dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
-            
-            data = dataset[0]
-            print(dataset.data, data.test_mask.sum())
-            data.train_mask = data.val_mask = data.test_mask = data.y = None
+                data = dataset[0]
+                data.x = torch.arange(data.num_nodes)
+                data.train_mask = data.val_mask = data.test_mask = None
+
+            else:
+                raise NotImplementedError
+
+            print(dataset[0])
 
             # D
-            data = train_test_split_edges(data, test_ratio=0.2)
+            data = train_test_split_edges_no_neg_adj_mask(data, test_ratio=0.05, two_hop_degree=two_hop_degree, kg=True)
             print(data)
 
             with open(os.path.join(data_dir, d, f'd_{s}.pkl'), 'wb') as f:
