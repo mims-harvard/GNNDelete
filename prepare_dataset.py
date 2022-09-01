@@ -239,31 +239,57 @@ def process_graph():
 
 def process_kg():
     for d in kg_datasets:
-        for s in seeds:
-            print('Processing:', d, s)
-            seed_everything(s)
+        if d in ['FB15k-237']:
+            dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
+            data = dataset[0]
+            x = torch.arange(data.num_nodes)
+            edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
+            edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
+        
+        elif d in ['WordNet18RR']:
+            dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
+            data = dataset[0]
+            data.x = torch.arange(data.num_nodes)
+            data.train_mask = data.val_mask = data.test_mask = None
 
-            if d in ['FB15k-237']:
-                dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
-                data = dataset[0]
-                x = torch.arange(data.num_nodes)
-                edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
-                edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
+        else:
+            raise NotImplementedError
             
-            if d in ['WordNet18RR']:
-                dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
-                data = dataset[0]
-                data.x = torch.arange(data.num_nodes)
-                data.train_mask = data.val_mask = data.test_mask = None
+        print('Processing:', d)
+        print(dataset)
+        graph = to_networkx(data)
 
-            else:
-                raise NotImplementedError
+        # Get two hop degree for all nodes
+        node_to_neighbors = {}
+        for n in tqdm(graph.nodes(), desc='Two hop neighbors'):
+            neighbor_1 = set(graph.neighbors(n))
+            neighbor_2 = sum([list(graph.neighbors(i)) for i in neighbor_1], [])
+            neighbor_2 = set(neighbor_2)
+            neighbor = neighbor_1 | neighbor_2
+            
+            node_to_neighbors[n] = neighbor
 
-            print(dataset[0])
+        two_hop_degree = []
+        row, col = data.edge_index
+        mask = row < col
+        row, col = row[mask], col[mask]
+        for r, c in tqdm(zip(row, col), total=len(row)):
+            neighbor_row = node_to_neighbors[r.item()]
+            neighbor_col = node_to_neighbors[c.item()]
+            neighbor = neighbor_row | neighbor_col
+            
+            num = len(neighbor)
+            
+            two_hop_degree.append(num)
+
+        two_hop_degree = torch.tensor(two_hop_degree)
+        
+        for s in seeds:
+            seed_everything(s)
 
             # D
             data = train_test_split_edges_no_neg_adj_mask(data, test_ratio=0.05, two_hop_degree=two_hop_degree, kg=True)
-            print(data)
+            print(s, data)
 
             with open(os.path.join(data_dir, d, f'd_{s}.pkl'), 'wb') as f:
                 pickle.dump((dataset, data), f)
