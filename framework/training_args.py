@@ -29,7 +29,7 @@ def parse_args():
                         help='dataset')
     parser.add_argument('--random_seed', type=int, default=42,
                         help='random seed')
-    parser.add_argument('--batch_size', type=int, default=128, 
+    parser.add_argument('--batch_size', type=int, default=8192, 
                         help='batch size for GraphSAINTRandomWalk sampler')
     parser.add_argument('--walk_length', type=int, default=2,
                         help='random walk length for GraphSAINTRandomWalk sampler')
@@ -45,7 +45,7 @@ def parse_args():
                         help='optimizer to use')
     parser.add_argument('--epochs', type=int, default=3000, 
                         help='number of epochs to train')
-    parser.add_argument('--valid_freq', type=int, default=10,
+    parser.add_argument('--valid_freq', type=int, default=50,
                         help='# of epochs to do validation')
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoint',
                         help='checkpoint folder')
@@ -67,9 +67,6 @@ def parse_args():
     args = parser.parse_args()
 
     if 'ogbl' in args.dataset:
-        args.valid_freq = 20
-        args.epochs = 200
-        args.batch_size = args.batch_size * 16
         args.eval_on_cpu = True
 
     return args
