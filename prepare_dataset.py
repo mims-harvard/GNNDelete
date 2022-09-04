@@ -17,7 +17,7 @@ data_dir = './data'
 df_size = [i / 100 for i in range(10)] + [i / 10 for i in range(10)] + [i for i in range(10)]       # Df_size in percentage
 seeds = [42, 21, 13, 87, 100]
 graph_datasets = ['Cora', 'PubMed', 'DBLP', 'CS', 'ogbl-citation2', 'ogbl-collab']
-kg_datasets = ['FB15k-237', 'WordNet18RR'][1:]
+kg_datasets = ['FB15k-237', 'WordNet18RR']
 os.makedirs(data_dir, exist_ok=True)
 
 
@@ -239,12 +239,15 @@ def process_graph():
 
 def process_kg():
     for d in kg_datasets:
+
+        # Create the dataset to calculate node degrees
         if d in ['FB15k-237']:
             dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
             data = dataset[0]
             x = torch.arange(data.num_nodes)
             edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
             edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
+            data = Data(x=x, edge_index=edge_index, edge_type=edge_type)
         
         elif d in ['WordNet18RR']:
             dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
@@ -271,8 +274,6 @@ def process_kg():
 
         two_hop_degree = []
         row, col = data.edge_index
-        mask = row < col
-        row, col = row[mask], col[mask]
         for r, c in tqdm(zip(row, col), total=len(row)):
             neighbor_row = node_to_neighbors[r.item()]
             neighbor_col = node_to_neighbors[c.item()]
@@ -286,6 +287,23 @@ def process_kg():
         
         for s in seeds:
             seed_everything(s)
+
+            if d in ['FB15k-237']:
+                dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
+                data = dataset[0]
+                x = torch.arange(data.num_nodes)
+                edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
+                edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
+                data = Data(x=x, edge_index=edge_index, edge_type=edge_type)
+            
+            elif d in ['WordNet18RR']:
+                dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
+                data = dataset[0]
+                data.x = torch.arange(data.num_nodes)
+                data.train_mask = data.val_mask = data.test_mask = None
+
+            else:
+                raise NotImplementedError
 
             # D
             data = train_test_split_edges_no_neg_adj_mask(data, test_ratio=0.05, two_hop_degree=two_hop_degree, kg=True)
