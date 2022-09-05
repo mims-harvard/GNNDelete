@@ -10,6 +10,11 @@ from framework.trainer.base import Trainer
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+num_edge_type_mapping = {
+    'FB15k-237': 237 * 2,
+    'WordNet18RR': 11 * 2
+}
+
 def main():
     args = parse_args()
     args.unlearning_model = 'original'
@@ -29,7 +34,7 @@ def main():
 
     # Model
     if args.gnn in ['rgcn', 'rgat']:
-        num_edge_type = data.edge_type.unique().shape[0]
+        num_edge_type = num_edge_type_mapping[args.dataset]
     else:
         num_edge_type = None
     
