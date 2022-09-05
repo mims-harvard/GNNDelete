@@ -348,69 +348,79 @@ class Trainer:
 
 
 class KGTrainer(Trainer):
-    def negative_sampling_kg(self, edge_index, edge_type):
-        '''Generate negative samples but keep the node type the same'''
-
-        edge_index_copy = edge_index.clone()
-        for et in edge_type.unique():
-            mask = (edge_type == et)
-            old_source = edge_index_copy[0, mask]
-            new_index = torch.randperm(old_source.shape[0])
-            new_source = old_source[new_index]
-            edge_index_copy[0, mask] = new_source
-        
-        return edge_index_copy
-    
     def train(self, model, data, optimizer, args):
+        start_time = time.time()
         best_valid_loss = 1000000
 
+        data.edge_index = data.train_pos_edge_index
+        data.edge_type = data.train_edge_type
+        loader = GraphSAINTRandomWalkSampler(
+            data, batch_size=args.batch_size, walk_length=2, num_steps=args.num_steps,
+        )
         for epoch in trange(args.epochs, desc='Epoch'):
             model.train()
 
-            # Positive and negative sample
-            neg_edge_index = negative_sampling(
-                edge_index=data.train_pos_edge_index[:, data.dtrain_mask],
-                num_nodes=data.num_nodes,
-                num_neg_samples=data.dtrain_mask.sum())
-            
-            print('shape', data.train_pos_edge_index.shape, data.train_pos_edge_index[:, data.dtrain_mask].shape, data.edge_type.shape)
-            z = model(data.x, data.train_pos_edge_index[:, data.dtrain_mask], data.edge_type)
-            edge_index = torch.cat([train_pos_edge_index[:, data.dtrain_mask], neg_edge_index], dim=-1)
-            edge_type = torch.cat([data.edge_type[data.dtrain_mask], data.edge_type[data.dtrain_mask]], dim=-1)
-            print('shape', data.edge_type.shape, data.edge_type[data.dtrain_mask].shape, edge_type.shape)
-            
+            epoch_loss = 0
+            for step, batch in enumerate(tqdm(loader, desc='Step', leave=False)):
+                batch = batch.to('cuda')
 
-            logits = model.decode(z, edge_index, edge_type)
+                # Message passing
+                train_pos_edge_index = batch.edge_index[:, batch.dtrain_mask]
+                train_edge_type = batch.edge_type[batch.dtrain_mask]
+                z = model(batch.x, train_pos_edge_index, batch.edge_type)
 
-            label = get_link_labels(data.train_pos_edge_index[:, data.dtrain_mask], neg_edge_index)
-            loss = F.binary_cross_entropy_with_logits(logits, label)
+                # Positive and negative sample
+                neg_edge_index = negative_sampling_kg(
+                    edge_index=train_pos_edge_index,
+                    edge_type=batch.edge_type)
 
-            loss.backward()
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
-            optimizer.step()
-            optimizer.zero_grad()
+                edge_index = torch.cat([train_pos_edge_index, neg_edge_index], dim=-1)
+                edge_type = torch.cat([train_edge_type, train_edge_type], dim=-1)
+                logits = model.decode(z, edge_index, edge_type)
 
-            if (epoch+1) % args.valid_freq == 0:
+                # Edge label
+                # label = get_link_labels(data.train_pos_edge_index[:, data.dtrain_mask], neg_edge_index)
+                # label = get_link_labels(train_pos_edge_index, neg_edge_index)
+                label_pos = torch.ones_like(train_edge_type).to(device)
+                label_neg = torch.zeros_like(train_edge_type).to(device)
+                label = torch.cat([label_pos, label_neg], dim=-1)
+
+                loss = F.binary_cross_entropy_with_logits(logits, label)
+
+                loss.backward()
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+                optimizer.step()
+                optimizer.zero_grad()
+
                 log = {
-                    'Epoch': epoch,
+                    'epoch': epoch,
+                    'step': step,
                     'train_loss': loss.item(),
                 }
                 wandb.log(log)
                 msg = [f'{i}: {j:>4d}' if isinstance(j, int) else f'{i}: {j:.4f}' for i, j in log.items()]
                 tqdm.write(' | '.join(msg))
 
-                valid_loss, auc, aup, df_logit, logit_all_pair = self.eval(model, data, 'val')
+                epoch_loss += loss.item()
 
-                self.trainer_log['log'].append({
-                    'train_loss': loss.item(),
-                    'valid_loss': valid_loss,
-                    'valid_auc': auc,
-                    'valid_aup': aup, 
-                    'df_logit': df_logit
-                })
+            if (epoch+1) % args.valid_freq == 0:
+                valid_loss, dt_auc, dt_aup, df_auc, df_aup, df_logit, logit_all_pair, valid_log = self.eval(model, data, 'val')
+
+                train_log = {
+                    'epoch': epoch,
+                    'train_loss': epoch_loss / step
+                }
+                
+                for log in [train_log, valid_log]:
+                    wandb.log(log)
+                    msg = [f'{i}: {j:>4d}' if isinstance(j, int) else f'{i}: {j:.4f}' for i, j in log.items()]
+                    tqdm.write(' | '.join(msg))
+
+                self.trainer_log['log'].append(train_log)
+                self.trainer_log['log'].append(valid_log)
 
                 if valid_loss < best_valid_loss:
-                    best_valid_loss = valid_loss
+                    best_valid_loss = dt_auc + df_auc
                     best_epoch = epoch
 
                     print(f'Save best checkpoint at epoch {epoch:04d}. Valid loss = {valid_loss:.4f}')
@@ -435,81 +445,7 @@ class KGTrainer(Trainer):
 
         self.trainer_log['best_epoch'] = best_epoch
         self.trainer_log['best_valid_loss'] = best_valid_loss
-
-        for batch in loader:
-            # Positive and negative sample
-            pos_edge_index = batch.edge_index[:, mask]
-            pos_edge_type = batch.edge_type[mask]
-            neg_edge_index = self.negative_sampling_kg(pos_edge_index, pos_edge_type)
-            edge_index = torch.cat([pos_edge_index, pos_edge_type], dim=-1)
-
-            neg_edge_index = negative_sampling_kg(
-                edge_index=data.train_pos_edge_index[:, data.dtrain_mask],
-                num_nodes=data.num_nodes,
-                num_neg_samples=data.dtrain_mask.sum())
-        
-
-        # Edge label
-        label_pos = torch.ones(edge_pos.size(1)).to(edge_pos.device)
-        label_neg = torch.zeros(edge_neg.size(1)).to(edge_pos.device)
-        label = torch.cat([label_pos, label_neg], dim=-1)
-        
-        # Link prediction
-        edge_type = torch.cat([edge_type, edge_type], dim=-1)
-        proba = self.decode(embedding, edge, edge_type)
-
-        # Calculate loss
-        loss = F.binary_cross_entropy(proba, label)
-
-        loss.backward()
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
-        optimizer.step()
-        optimizer.zero_grad()
-
-        if (epoch+1) % args.valid_freq == 0:
-            log = {
-                'Epoch': epoch,
-                'train_loss': loss.item(),
-            }
-            wandb.log(log)
-            msg = [print(type(j)) for i, j in log.items()]
-            tqdm.write(' | '.join(msg))
-
-            valid_loss, auc, aup, df_logit, logit_all_pair = self.eval(model, data, 'val')
-
-            self.trainer_log['log'].append({
-                'train_loss': total_loss / total_step,
-                'valid_loss': valid_loss,
-                'valid_auc': auc,
-                'valid_aup': aup, 
-                'df_logit': df_logit
-            })
-
-            if valid_loss < best_valid_loss:
-                best_valid_loss = valid_loss
-                best_epoch = epoch
-
-                print(f'Save best checkpoint at epoch {epoch:04d}. Valid loss = {valid_loss:.4f}')
-                ckpt = {
-                    'model_state': model.state_dict(),
-                    'optimizer_state': optimizer.state_dict(),
-                }
-                torch.save(ckpt, os.path.join(args.checkpoint_dir, 'model_best.pt'))
-                torch.save(z, os.path.join(args.checkpoint_dir, 'node_embeddings.pt'))
-
-        # Save models and node embeddings
-        print('Saving final checkpoint')
-        ckpt = {
-            'model_state': model.state_dict(),
-            'optimizer_state': optimizer.state_dict(),
-        }
-        torch.save(ckpt, os.path.join(args.checkpoint_dir, 'model_final.pt'))
-
-        print(f'Training finished. Best checkpoint at epoch = {best_epoch:04d}, best valid loss = {best_valid_loss:.4f}')
-
-        self.trainer_log['best_epoch'] = best_epoch
-        self.trainer_log['best_valid_loss'] = best_valid_loss
-
+        self.trainer_log['training_time'] = np.mean([i['epoch_time'] for i in self.trainer_log['log'] if 'epoch_time' in i])
 
     @torch.no_grad()
     def eval(self, model, data, stage='val', pred_all=False):
@@ -517,19 +453,47 @@ class KGTrainer(Trainer):
         pos_edge_index = data[f'{stage}_pos_edge_index']
         neg_edge_index = data[f'{stage}_neg_edge_index']
 
+        if self.args.eval_on_cpu:
+            model = model.to('cpu')
+        
         z = model(data.x, data.train_pos_edge_index[:, data.dtrain_mask])
         logits = model.decode(z, pos_edge_index, neg_edge_index).sigmoid()
         label = self.get_link_labels(pos_edge_index, neg_edge_index)
 
+        # DT AUC AUP
         loss = F.binary_cross_entropy_with_logits(logits, label).cpu().item()
-        auc = roc_auc_score(label.cpu(), logits.cpu())
-        aup = average_precision_score(label.cpu(), logits.cpu())
+        dt_auc = roc_auc_score(label.cpu(), logits.cpu())
+        dt_aup = average_precision_score(label.cpu(), logits.cpu())
 
-        if data.dtrain_mask.sum() != data.train_pos_edge_index.shape[1]:    # Deletion
-            df_logit = model.decode(z, data.train_pos_edge_index[:, ~data.dtrain_mask]).sigmoid().detach().cpu().item()
-        else:                                                               # Original
-            df_logit = float('nan')
+        # DF AUC AUP
+        if self.args.unlearning_model in ['original']:
+            df_logit = []
+        else:
+            df_logit = model.decode(z, data.train_pos_edge_index[:, data.df_mask]).sigmoid().tolist()
 
+        if len(df_logit) > 0:
+            df_auc = []
+            df_aup = []
+
+            for i in range(500):
+                mask = torch.zeros(data.train_pos_edge_index[:, data.dr_mask].shape[1], dtype=torch.bool)
+                idx = torch.randperm(data.train_pos_edge_index[:, data.dr_mask].shape[1])[:len(df_logit)]
+                mask[idx] = True
+                pos_logit = model.decode(z, data.train_pos_edge_index[:, data.dr_mask][:, mask]).sigmoid().tolist()
+
+                logit = df_logit + pos_logit
+                label = [0] * len(df_logit) +  [1] * len(df_logit)
+                df_auc.append(roc_auc_score(label, logit))
+                df_aup.append(average_precision_score(label, logit))
+        
+            df_auc = np.mean(df_auc)
+            df_aup = np.mean(df_aup)
+
+        else:
+            df_auc = np.nan
+            df_aup = np.nan
+
+        # Logits for all node pairs
         if pred_all:
             logit_all_pair = (z @ z.t()).cpu()
         else:
@@ -537,15 +501,18 @@ class KGTrainer(Trainer):
 
         log = {
             f'{stage}_loss': loss,
-            f'{stage}_auc': auc,
-            f'{stage}_aup': aup,
-            f'{stage}_df_logit': df_logit,
+            f'{stage}_dt_auc': dt_auc,
+            f'{stage}_dt_aup': dt_aup,
+            f'{stage}_df_auc': df_auc,
+            f'{stage}_df_aup': df_aup,
+            f'{stage}_df_logit_mean': np.mean(df_logit),
+            f'{stage}_df_logit_std': np.std(df_logit)
         }
-        wandb.log(log)
-        msg = [f'{i}: {j:.4f}' if type(j) is float else f'{i}: {j:>4d}' for i, j in log.items()]
-        tqdm.write(' | '.join(msg))
 
-        return loss, auc, aup, df_logit, logit_all_pair
+        if self.args.eval_on_cpu:
+            model = model.to('cuda')
+
+        return loss, dt_auc, dt_aup, df_auc, df_aup, df_logit, logit_all_pair, log
 
     @torch.no_grad()
     def test(self, model, data, model_retrain=None, ckpt=None):
