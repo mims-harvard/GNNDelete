@@ -11,8 +11,8 @@ from framework.trainer.base import Trainer
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 num_edge_type_mapping = {
-    'FB15k-237': 237 * 2,
-    'WordNet18RR': 11 * 2
+    'FB15k-237': 237,
+    'WordNet18RR': 11
 }
 
 def main():
@@ -27,10 +27,15 @@ def main():
     print('Dataset:', dataset, data)
     args.in_dim = dataset.num_features
 
+    if args.gnn in ['rgcn', 'rgat']:
+        args.in_dim = dataset[0].num_nodes
+
     wandb.init(config=args)
 
     # Use proper training data for original and Dr
     data.dtrain_mask = torch.ones(data.train_pos_edge_index.shape[1], dtype=torch.bool)
+    if args.gnn in ['rgcn', 'rgat']:
+        data.edge_index_mask = data.dtrain_mask.repeat(2)
 
     # Model
     if args.gnn in ['rgcn', 'rgat']:

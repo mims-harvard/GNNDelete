@@ -13,8 +13,8 @@ class RGCN(nn.Module):
         self.num_edge_type = num_edge_type
 
         # Encoder: RGCN
-        self.conv1 = FastRGCNConv(args.in_dim, args.hidden_dim, num_edge_type)
-        self.conv2 = FastRGCNConv(args.hidden_dim, args.out_dim, num_edge_type)
+        self.conv1 = FastRGCNConv(args.in_dim, args.hidden_dim, num_edge_type * 2)
+        self.conv2 = FastRGCNConv(args.hidden_dim, args.out_dim, num_edge_type * 2)
         self.relu = nn.ReLU()
         
         # Decoder: DistMult
@@ -25,7 +25,7 @@ class RGCN(nn.Module):
         x = self.conv1(x, edge, edge_type)
         x = self.relu(x)
         x = self.conv2(x, edge, edge_type)
-        out = F.log_softmax(x, dim=1)
+        # out = F.log_softmax(x, dim=1)
         
         return out
 
