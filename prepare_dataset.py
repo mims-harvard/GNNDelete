@@ -59,10 +59,19 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
     r, c = row[n_v + n_t:], col[n_v + n_t:]
     
     if kg:
-        data.train_pos_edge_index = torch.cat((torch.stack([r, c], dim=0), torch.stack([r, c], dim=0)), dim=1)
+
+        # data.edge_index and data.edge_type has reverse edges and edge types for message passing
+        pos_edge_index = torch.stack([r, c], dim=0)
+        rev_pos_edge_index = torch.stack([r, c], dim=0)
         train_edge_type = edge_type[n_v + n_t:]
         train_rev_edge_type = edge_type[n_v + n_t:] + edge_type.unique().shape[0]
-        data.train_edge_type = torch.cat([train_edge_type, train_rev_edge_type], dim=0)
+
+        data.edge_index = torch.cat((torch.stack([r, c], dim=0), torch.stack([r, c], dim=0)), dim=1)
+        data.edge_type = torch.cat([train_edge_type, train_rev_edge_type], dim=0)
+        
+        # data.train_pos_edge_index and data.train_edge_type only has one direction edges and edge types for decoding
+        data.train_pos_edge_index = torch.stack([r, c], dim=0)
+        data.train_edge_type = train_edge_type
     
     else:
         data.train_pos_edge_index = torch.stack([r, c], dim=0)
@@ -244,15 +253,15 @@ def process_kg():
         if d in ['FB15k-237']:
             dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
             data = dataset[0]
-            x = torch.arange(data.num_nodes)
+            # x = torch.arange(data.num_nodes)
             edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
             edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
-            data = Data(x=x, edge_index=edge_index, edge_type=edge_type)
+            data = Data(edge_index=edge_index, edge_type=edge_type)
         
         elif d in ['WordNet18RR']:
             dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
             data = dataset[0]
-            data.x = torch.arange(data.num_nodes)
+            # data.x = torch.arange(data.num_nodes)
             data.train_mask = data.val_mask = data.test_mask = None
 
         else:
@@ -338,8 +347,8 @@ def process_kg():
 
 
 def main():
-    process_graph()
-    # process_kg()
+    # process_graph()
+    process_kg()
 
 if __name__ == "__main__":
     main()
