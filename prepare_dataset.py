@@ -28,7 +28,7 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
     row, col = data.edge_index
     edge_attr = data.edge_attr
     edge_type = data.edge_type
-    data.edge_index = data.edge_attr = data.edge_weight = data.edge_year = None
+    data.edge_index = data.edge_attr = data.edge_weight = data.edge_year = data.edge_type = None
 
     if not kg:
         # Return upper triangular portion.
@@ -61,7 +61,7 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
     if kg:
         data.train_pos_edge_index = torch.cat((torch.stack([r, c], dim=0), torch.stack([r, c], dim=0)), dim=1)
         train_edge_type = edge_type[n_v + n_t:]
-        train_rev_edge_type = edge_type + edge_type.unique().shape[0]
+        train_rev_edge_type = edge_type[n_v + n_t:] + edge_type.unique().shape[0]
         data.train_edge_type = torch.cat([train_edge_type, train_rev_edge_type], dim=0)
     
     else:

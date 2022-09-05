@@ -380,6 +380,7 @@ class KGTrainer(Trainer):
         start_time = time.time()
         best_valid_loss = 1000000
 
+<<<<<<< HEAD
         #     # Positive and negative sample
         #     pos_edge_index = batch.edge_index[:, mask]
         #     pos_edge_type = batch.edge_type[mask]
@@ -397,6 +398,8 @@ class KGTrainer(Trainer):
         #     logits = model.decode(z, edge_index, edge_type)
         #     label = get_link_labels(data.train_pos_edge_index[:, data.dtrain_mask], neg_edge_index)
 
+=======
+>>>>>>> 9834fc287055fc9be93063ffa9c9a405f4b36705
         data.edge_index = data.train_pos_edge_index
         data.edge_type = data.train_edge_type
         loader = GraphSAINTRandomWalkSampler(
@@ -407,6 +410,7 @@ class KGTrainer(Trainer):
 
             epoch_loss = 0
             for step, batch in enumerate(tqdm(loader, desc='Step', leave=False)):
+<<<<<<< HEAD
                 # Positive and negative sample
                 batch = batch.to('cuda')
                 train_pos_edge_index = batch.edge_index
@@ -429,6 +433,31 @@ class KGTrainer(Trainer):
                 proba = self.decode(embedding, edge, edge_type)
 
                 label = get_link_labels(train_pos_edge_index, neg_edge_index)
+=======
+                batch = batch.to('cuda')
+
+                # Message passing
+                train_pos_edge_index = batch.edge_index[:, batch.dtrain_mask]
+                train_edge_type = batch.edge_type[batch.dtrain_mask]
+                z = model(batch.x, train_pos_edge_index, batch.edge_type)
+
+                # Positive and negative sample
+                neg_edge_index = negative_sampling_kg(
+                    edge_index=train_pos_edge_index,
+                    edge_type=batch.edge_type)
+
+                edge_index = torch.cat([train_pos_edge_index, neg_edge_index], dim=-1)
+                edge_type = torch.cat([train_edge_type, train_edge_type], dim=-1)
+                logits = model.decode(z, edge_index, edge_type)
+
+                # Edge label
+                # label = get_link_labels(data.train_pos_edge_index[:, data.dtrain_mask], neg_edge_index)
+                # label = get_link_labels(train_pos_edge_index, neg_edge_index)
+                label_pos = torch.ones_like(train_edge_type).to(device)
+                label_neg = torch.zeros_like(train_edge_type).to(device)
+                label = torch.cat([label_pos, label_neg], dim=-1)
+
+>>>>>>> 9834fc287055fc9be93063ffa9c9a405f4b36705
                 loss = F.binary_cross_entropy_with_logits(logits, label)
 
                 loss.backward()
@@ -447,7 +476,11 @@ class KGTrainer(Trainer):
 
                 epoch_loss += loss.item()
 
+<<<<<<< HEAD
             if (epoch + 1) % args.valid_freq == 0:
+=======
+            if (epoch+1) % args.valid_freq == 0:
+>>>>>>> 9834fc287055fc9be93063ffa9c9a405f4b36705
                 valid_loss, dt_auc, dt_aup, df_auc, df_aup, df_logit, logit_all_pair, valid_log = self.eval(model, data, 'val')
 
                 train_log = {
@@ -514,6 +547,7 @@ class KGTrainer(Trainer):
             df_logit = []
         else:
             df_logit = model.decode(z, data.train_pos_edge_index[:, data.df_mask]).sigmoid().tolist()
+<<<<<<< HEAD
 
         if len(df_logit) > 0:
             df_auc = []
@@ -533,6 +567,27 @@ class KGTrainer(Trainer):
             df_auc = np.mean(df_auc)
             df_aup = np.mean(df_aup)
 
+=======
+
+        if len(df_logit) > 0:
+            df_auc = []
+            df_aup = []
+
+            for i in range(500):
+                mask = torch.zeros(data.train_pos_edge_index[:, data.dr_mask].shape[1], dtype=torch.bool)
+                idx = torch.randperm(data.train_pos_edge_index[:, data.dr_mask].shape[1])[:len(df_logit)]
+                mask[idx] = True
+                pos_logit = model.decode(z, data.train_pos_edge_index[:, data.dr_mask][:, mask]).sigmoid().tolist()
+
+                logit = df_logit + pos_logit
+                label = [0] * len(df_logit) +  [1] * len(df_logit)
+                df_auc.append(roc_auc_score(label, logit))
+                df_aup.append(average_precision_score(label, logit))
+        
+            df_auc = np.mean(df_auc)
+            df_aup = np.mean(df_aup)
+
+>>>>>>> 9834fc287055fc9be93063ffa9c9a405f4b36705
         else:
             df_auc = np.nan
             df_aup = np.nan
