@@ -253,7 +253,6 @@ def process_kg():
         if d in ['FB15k-237']:
             dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
             data = dataset[0]
-            # x = torch.arange(data.num_nodes)
             edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
             edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
             data = Data(edge_index=edge_index, edge_type=edge_type)
@@ -261,8 +260,6 @@ def process_kg():
         elif d in ['WordNet18RR']:
             dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
             data = dataset[0]
-            # data.x = torch.arange(data.num_nodes)
-            data.train_mask = data.val_mask = data.test_mask = None
 
         else:
             raise NotImplementedError
@@ -300,7 +297,7 @@ def process_kg():
             if d in ['FB15k-237']:
                 dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
                 data = dataset[0]
-                x = torch.arange(data.num_nodes)
+                x = torch.rand(data.num_nodes, 128)
                 edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
                 edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
                 data = Data(x=x, edge_index=edge_index, edge_type=edge_type)
@@ -308,7 +305,7 @@ def process_kg():
             elif d in ['WordNet18RR']:
                 dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
                 data = dataset[0]
-                data.x = torch.arange(data.num_nodes)
+                x = torch.rand(data.num_nodes, 128)
                 data.train_mask = data.val_mask = data.test_mask = None
 
             else:

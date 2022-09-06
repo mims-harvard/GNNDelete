@@ -25,10 +25,8 @@ def main():
     with open(os.path.join(args.data_dir, args.dataset, f'd_{args.random_seed}.pkl'), 'rb') as f:
         dataset, data = pickle.load(f)
     print('Dataset:', dataset, data)
-    args.in_dim = dataset.num_features
-
-    if args.gnn in ['rgcn', 'rgat']:
-        args.in_dim = dataset[0].num_nodes
+    if args.gnn not in ['rgcn', 'rgat']:
+        args.in_dim = dataset.num_features
 
     wandb.init(config=args)
 

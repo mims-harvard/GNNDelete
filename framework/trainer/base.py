@@ -380,33 +380,38 @@ class KGTrainer(Trainer):
         start_time = time.time()
         best_valid_loss = 1000000
 
-        print(data)
+        data.edge_index = data.train_pos_edge_index
+        data.edge_type = data.train_edge_type
         loader = GraphSAINTRandomWalkSampler(
-            data, batch_size=args.batch_size, walk_length=2, num_steps=args.num_steps,
+            data, batch_size=128, walk_length=16, num_steps=32,
         )
         for epoch in trange(args.epochs, desc='Epoch'):
             model.train()
 
             epoch_loss = 0
             for step, batch in enumerate(tqdm(loader, desc='Step', leave=False)):
-                batch = batch.to('cuda')
+                batch = batch.to(device)
 
                 # Message passing
-                edge_index = batch.edge_index[:, batch.edge_index_mask]
-                edge_type = batch.edge_type[batch.edge_index_mask]
+                # edge_index = batch.edge_index
+                # edge_type = batch.edge_type
+                s, d = batch.edge_index
+                rev = torch.stack([d, s])
+                edge_index = torch.cat([batch.edge_index, rev], dim=-1)
+                edge_type = torch.cat([batch.edge_type, batch.edge_type + 237])
                 z = model(batch.x, edge_index, edge_type)
 
                 # Positive and negative sample
-                train_pos_edge_index = batch.train_pos_edge_index[:, batch.dtrain_mask]
-                train_edge_type = batch.train_edge_type[batch.dtrain_mask]
+                train_pos_edge_index = batch.train_pos_edge_index
+                train_edge_type = batch.train_edge_type
                 neg_edge_index = negative_sampling_kg(
-                    edge_index=train_pos_edge_index,
-                    edge_type=train_edge_type)
+                    edge_index=batch.edge_index,
+                    edge_type=batch.edge_type)
 
-                decoding_edge_index = torch.cat([train_pos_edge_index, neg_edge_index], dim=-1)
-                decoding_edge_type = torch.cat([train_edge_type, train_edge_type], dim=-1)
+                decoding_edge_index = torch.cat([batch.edge_index, neg_edge_index], dim=-1)
+                decoding_edge_type = torch.cat([batch.edge_type, batch.edge_type], dim=-1)
                 logits = model.decode(z, decoding_edge_index, decoding_edge_type)
-                label = get_link_labels(train_pos_edge_index, neg_edge_index)
+                label = get_link_labels(batch.edge_index, neg_edge_index)
                 loss = F.binary_cross_entropy_with_logits(logits, label)
 
                 loss.backward()
