@@ -1,11 +1,4 @@
 
-
-## Dataset
-
-Download from this [repo](https://github.com/dair-iitd/tkbi), [website](https://zenodo.org/record/4286007#.Ya5KCtDMKUl).
-
-
-
 # GNNDelete: A General Unlearning Strategy for Graph Neural Networks
 
 #### Authors: 
@@ -19,6 +12,7 @@ Download from this [repo](https://github.com/dair-iitd/tkbi), [website](https://
 
 #### GNNDelete Paper: [ICLR 2023](https://openreview.net/forum?id=X9yCkmT5Qrl), [Preprint]()
 
+
 ## Overview 
 
 This repository contains the code to preprocess datasets, train GNN models, and perform data deletion on trained GNN models for manuscript *GNNDelete: A General Graph Unlearning Strategy*. We propose GNNDelete, a model-agnostic layer-wise operator that optimize both properties for unlearning tasks. It formalizes the required properties for graph unlearning in the form of Deleted Edge Consistency and Neighborhood Influence. GNNDelete updates latent representations to delete nodes and edges from the model while keeping the rest of the learned knowledge intact. 
@@ -26,7 +20,6 @@ This repository contains the code to preprocess datasets, train GNN models, and 
 <p align="center">
     <img src="images/fig1.png" width="1000" align="center">
 </p>
-
 
 
 ## Key idea of GNNDelete
@@ -57,7 +50,6 @@ The following table summarizes the statistics of all these seven datasets:
 | OGB-Collab | 235,368 | 1,285,465 |         N/A         |       117,905       |
 | WordNet18  |  40,943 |  151,442  |          18         |        7,072        |
 | BioKG      |  93,773 | 5,088,434 |          51         |       127,210       |
-
 
 
 ## Experimental setups
