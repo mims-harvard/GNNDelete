@@ -98,7 +98,7 @@ Or
 
 ```python train_node_classification.py```
 
-**Train Membership Inference attacker (_Optional)** We use the model in _Membership Inference Attack on Graph Neural Networks_ as our MI model. Please refer to the [official implementation](https://github.com/iyempissy/rebMIGraph).
+**Train Membership Inference attacker (_Optional_)** We use the model in _Membership Inference Attack on Graph Neural Networks_ as our MI model. Please refer to the [official implementation](https://github.com/iyempissy/rebMIGraph).
 
 **Unlearn** Then we can delete information from the trained GNN model. Based on what you want to delete, run one of the three scrips
 
