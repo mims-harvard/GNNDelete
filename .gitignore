@@ -1,8 +1,8 @@
 experiment/
 data/
-checkpoint/
+checkpoint*/
 data
-checkpoint
+checkpoint*
 wandb
 wandb/
 results/

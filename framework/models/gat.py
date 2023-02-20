@@ -12,13 +12,16 @@ class GAT(nn.Module):
         self.conv2 = GATConv(args.hidden_dim, args.out_dim)
         # self.dropout = nn.Dropout(args.dropout)
 
-    def forward(self, x, edge_index):
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
+    def forward(self, x, edge_index, return_all_emb=False):
+        x1 = self.conv1(x, edge_index)
+        x = F.relu(x1)
         # x = self.dropout(x)
-        x = self.conv2(x, edge_index)
+        x2 = self.conv2(x, edge_index)
 
-        return x
+        if return_all_emb:
+            return x1, x2
+        
+        return x2
 
     def decode(self, z, pos_edge_index, neg_edge_index=None):
         if neg_edge_index is not None:

@@ -2,13 +2,14 @@ import os
 import math
 import pickle
 import torch
+import pandas as pd
 import networkx as nx
 from tqdm import tqdm
 from torch_geometric.seed import seed_everything
 import torch_geometric.transforms as T
 from torch_geometric.data import Data
-from torch_geometric.datasets import CitationFull, Coauthor, Flickr, RelLinkPredDataset, WordNet18RR
-from torch_geometric.utils import train_test_split_edges, k_hop_subgraph, negative_sampling, to_undirected, to_networkx
+from torch_geometric.datasets import CitationFull, Coauthor, Flickr, RelLinkPredDataset, WordNet18, WordNet18RR
+from torch_geometric.utils import train_test_split_edges, k_hop_subgraph, negative_sampling, to_undirected, is_undirected, to_networkx
 from ogb.linkproppred import PygLinkPropPredDataset
 from framework.utils import *
 
@@ -16,10 +17,16 @@ from framework.utils import *
 data_dir = './data'
 df_size = [i / 100 for i in range(10)] + [i / 10 for i in range(10)] + [i for i in range(10)]       # Df_size in percentage
 seeds = [42, 21, 13, 87, 100]
-graph_datasets = ['Cora', 'PubMed', 'DBLP', 'CS', 'ogbl-citation2', 'ogbl-collab']
-kg_datasets = ['FB15k-237', 'WordNet18RR']
+graph_datasets = ['Cora', 'PubMed', 'DBLP', 'CS', 'ogbl-citation2', 'ogbl-collab'][4:]
+kg_datasets = ['FB15k-237', 'WordNet18', 'WordNet18RR', 'ogbl-biokg'][-1:]
 os.makedirs(data_dir, exist_ok=True)
 
+
+num_edge_type_mapping = {
+    'FB15k-237': 237,
+    'WordNet18': 18,
+    'WordNet18RR': 11
+}
 
 def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_ratio: float = 0.1, two_hop_degree=None, kg=False):
     '''Avoid adding neg_adj_mask'''
@@ -27,7 +34,8 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
     num_nodes = data.num_nodes
     row, col = data.edge_index
     edge_attr = data.edge_attr
-    edge_type = data.edge_type
+    if kg:
+        edge_type = data.edge_type
     data.edge_index = data.edge_attr = data.edge_weight = data.edge_year = data.edge_type = None
 
     if not kg:
@@ -41,16 +49,19 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
     n_v = int(math.floor(val_ratio * row.size(0)))
     n_t = int(math.floor(test_ratio * row.size(0)))
 
-    # Use low degree edges for test sets
-    low_degree_mask = two_hop_degree < 50
+    if two_hop_degree is not None:          # Use low degree edges for test sets
+        low_degree_mask = two_hop_degree < 50
 
-    low = low_degree_mask.nonzero().squeeze()
-    high = (~low_degree_mask).nonzero().squeeze()
+        low = low_degree_mask.nonzero().squeeze()
+        high = (~low_degree_mask).nonzero().squeeze()
 
-    low = low[torch.randperm(low.size(0))]
-    high = high[torch.randperm(high.size(0))]
+        low = low[torch.randperm(low.size(0))]
+        high = high[torch.randperm(high.size(0))]
 
-    perm = torch.cat([low, high])
+        perm = torch.cat([low, high])
+
+    else:
+        perm = torch.randperm(row.size(0))
 
     row = row[perm]
     col = col[perm]
@@ -62,12 +73,15 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
 
         # data.edge_index and data.edge_type has reverse edges and edge types for message passing
         pos_edge_index = torch.stack([r, c], dim=0)
-        rev_pos_edge_index = torch.stack([r, c], dim=0)
+        # rev_pos_edge_index = torch.stack([r, c], dim=0)
         train_edge_type = edge_type[n_v + n_t:]
-        train_rev_edge_type = edge_type[n_v + n_t:] + edge_type.unique().shape[0]
+        # train_rev_edge_type = edge_type[n_v + n_t:] + edge_type.unique().shape[0]
 
-        data.edge_index = torch.cat((torch.stack([r, c], dim=0), torch.stack([r, c], dim=0)), dim=1)
-        data.edge_type = torch.cat([train_edge_type, train_rev_edge_type], dim=0)
+        # data.edge_index = torch.cat((torch.stack([r, c], dim=0), torch.stack([r, c], dim=0)), dim=1)
+        # data.edge_type = torch.cat([train_edge_type, train_rev_edge_type], dim=0)
+
+        data.edge_index = pos_edge_index
+        data.edge_type = train_edge_type
         
         # data.train_pos_edge_index and data.train_edge_type only has one direction edges and edge types for decoding
         data.train_pos_edge_index = torch.stack([r, c], dim=0)
@@ -76,10 +90,13 @@ def train_test_split_edges_no_neg_adj_mask(data, val_ratio: float = 0.05, test_r
     else:
         data.train_pos_edge_index = torch.stack([r, c], dim=0)
         if edge_attr is not None:
-            out = to_undirected(data.train_pos_edge_index, edge_attr[n_v + n_t:])
+            # out = to_undirected(data.train_pos_edge_index, edge_attr[n_v + n_t:])
             data.train_pos_edge_index, data.train_pos_edge_attr = out
         else:
-            data.train_pos_edge_index = to_undirected(data.train_pos_edge_index)
+            data.train_pos_edge_index = data.train_pos_edge_index
+            # data.train_pos_edge_index = to_undirected(data.train_pos_edge_index)
+        
+        assert not is_undirected(data.train_pos_edge_index)
 
     
     # Test
@@ -171,7 +188,7 @@ def process_graph():
             if 'ogbl' in d:
                 data = train_test_split_edges_no_neg_adj_mask(data, test_ratio=0.05, two_hop_degree=two_hop_degree)
             else:
-                data = train_test_split_edges(data, test_ratio=0.05)
+                data = train_test_split_edges_no_neg_adj_mask(data, test_ratio=0.05)
             print(s, data)
 
             with open(os.path.join(data_dir, d, f'd_{s}.pkl'), 'wb') as f:
@@ -253,66 +270,105 @@ def process_kg():
         if d in ['FB15k-237']:
             dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
             data = dataset[0]
+            data.x = torch.arange(data.num_nodes)
             edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
             edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
             data = Data(edge_index=edge_index, edge_type=edge_type)
-        
+
         elif d in ['WordNet18RR']:
             dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
             data = dataset[0]
+            data.x = torch.arange(data.num_nodes)
+            data.train_mask = data.val_mask = data.test_mask = None
+
+        elif d in ['WordNet18']:
+            dataset = WordNet18(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
+            data = dataset[0]
+            data.x = torch.arange(data.num_nodes)
+
+            # Use original split
+            data.train_pos_edge_index = data.edge_index[:, data.train_mask]
+            data.train_edge_type = data.edge_type[data.train_mask]
+
+            data.val_pos_edge_index = data.edge_index[:, data.val_mask]
+            data.val_edge_type = data.edge_type[data.val_mask]
+            data.val_neg_edge_index = negative_sampling_kg(data.val_pos_edge_index, data.val_edge_type)
+
+            data.test_pos_edge_index = data.edge_index[:, data.test_mask]
+            data.test_edge_type = data.edge_type[data.test_mask]
+            data.test_neg_edge_index = negative_sampling_kg(data.test_pos_edge_index, data.test_edge_type)
+
+        elif 'ogbl' in d:
+            dataset = PygLinkPropPredDataset(root=os.path.join(data_dir, d), name=d)
+
+            split_edge = dataset.get_edge_split()
+            train_edge, valid_edge, test_edge = split_edge["train"], split_edge["valid"], split_edge["test"]
+            entity_dict = dict()
+            cur_idx = 0
+            for key in dataset[0]['num_nodes_dict']:
+                entity_dict[key] = (cur_idx, cur_idx + dataset[0]['num_nodes_dict'][key])
+                cur_idx += dataset[0]['num_nodes_dict'][key]
+            nentity = sum(dataset[0]['num_nodes_dict'].values())
+
+            valid_head_neg = valid_edge.pop('head_neg')
+            valid_tail_neg = valid_edge.pop('tail_neg')
+            test_head_neg = test_edge.pop('head_neg')
+            test_tail_neg = test_edge.pop('tail_neg')
+
+            train = pd.DataFrame(train_edge)
+            valid = pd.DataFrame(valid_edge)
+            test = pd.DataFrame(test_edge)
+
+            # Convert to global index
+            train['head'] = [idx + entity_dict[tp][0] for idx, tp in zip(train['head'], train['head_type'])]
+            train['tail'] = [idx + entity_dict[tp][0] for idx, tp in zip(train['tail'], train['tail_type'])]
+
+            valid['head'] = [idx + entity_dict[tp][0] for idx, tp in zip(valid['head'], valid['head_type'])]
+            valid['tail'] = [idx + entity_dict[tp][0] for idx, tp in zip(valid['tail'], valid['tail_type'])]
+
+            test['head'] = [idx + entity_dict[tp][0] for idx, tp in zip(test['head'], test['head_type'])]
+            test['tail'] = [idx + entity_dict[tp][0] for idx, tp in zip(test['tail'], test['tail_type'])]
+
+            valid_pos_edge_index = torch.tensor([valid['head'], valid['tail']])
+            valid_edge_type = torch.tensor(valid.relation)
+            valid_neg_edge_index = torch.stack([valid_pos_edge_index[0], valid_tail_neg[:, 0]])
+
+            test_pos_edge_index = torch.tensor([test['head'], test['tail']])
+            test_edge_type = torch.tensor(test.relation)
+            test_neg_edge_index = torch.stack([test_pos_edge_index[0], test_tail_neg[:, 0]])
+
+            train_directed = train[train.head_type != train.tail_type]
+            train_undirected = train[train.head_type == train.tail_type]
+            train_undirected_uni = train_undirected[train_undirected['head'] < train_undirected['tail']]
+            train_uni = pd.concat([train_directed, train_undirected_uni], ignore_index=True)
+
+            train_pos_edge_index = torch.tensor([train_uni['head'], train_uni['tail']])
+            train_edge_type = torch.tensor(train_uni.relation)
+
+            r, c = train_pos_edge_index
+            rev_edge_index = torch.stack([c, r])
+            rev_edge_type = train_edge_type + 51
+
+            edge_index = torch.cat([train_pos_edge_index, rev_edge_index], dim=1)
+            edge_type = torch.cat([train_edge_type, rev_edge_type], dim=0)
+
+            data = Data(
+                x=torch.arange(nentity), edge_index=edge_index, edge_type=edge_type,
+                train_pos_edge_index=train_pos_edge_index, train_edge_type=train_edge_type, 
+                val_pos_edge_index=valid_pos_edge_index, val_edge_type=valid_edge_type, val_neg_edge_index=valid_neg_edge_index,
+                test_pos_edge_index=test_pos_edge_index, test_edge_type=test_edge_type, test_neg_edge_index=test_neg_edge_index)
 
         else:
             raise NotImplementedError
             
         print('Processing:', d)
         print(dataset)
-        graph = to_networkx(data)
-
-        # Get two hop degree for all nodes
-        node_to_neighbors = {}
-        for n in tqdm(graph.nodes(), desc='Two hop neighbors'):
-            neighbor_1 = set(graph.neighbors(n))
-            neighbor_2 = sum([list(graph.neighbors(i)) for i in neighbor_1], [])
-            neighbor_2 = set(neighbor_2)
-            neighbor = neighbor_1 | neighbor_2
-            
-            node_to_neighbors[n] = neighbor
-
-        two_hop_degree = []
-        row, col = data.edge_index
-        for r, c in tqdm(zip(row, col), total=len(row)):
-            neighbor_row = node_to_neighbors[r.item()]
-            neighbor_col = node_to_neighbors[c.item()]
-            neighbor = neighbor_row | neighbor_col
-            
-            num = len(neighbor)
-            
-            two_hop_degree.append(num)
-
-        two_hop_degree = torch.tensor(two_hop_degree)
         
         for s in seeds:
             seed_everything(s)
 
-            if d in ['FB15k-237']:
-                dataset = RelLinkPredDataset(os.path.join(data_dir, d), d, transform=T.NormalizeFeatures())
-                data = dataset[0]
-                x = torch.rand(data.num_nodes, 128)
-                edge_index = torch.cat([data.train_edge_index, data.valid_edge_index, data.test_edge_index], dim=1)
-                edge_type = torch.cat([data.train_edge_type, data.valid_edge_type, data.test_edge_type])
-                data = Data(x=x, edge_index=edge_index, edge_type=edge_type)
-            
-            elif d in ['WordNet18RR']:
-                dataset = WordNet18RR(os.path.join(data_dir, d), transform=T.NormalizeFeatures())
-                data = dataset[0]
-                x = torch.rand(data.num_nodes, 128)
-                data.train_mask = data.val_mask = data.test_mask = None
-
-            else:
-                raise NotImplementedError
-
             # D
-            data = train_test_split_edges_no_neg_adj_mask(data, test_ratio=0.05, two_hop_degree=two_hop_degree, kg=True)
+            # data = train_test_split_edges_no_neg_adj_mask(data, test_ratio=0.05, two_hop_degree=two_hop_degree, kg=True)
             print(s, data)
 
             with open(os.path.join(data_dir, d, f'd_{s}.pkl'), 'wb') as f:
@@ -344,8 +400,8 @@ def process_kg():
 
 
 def main():
-    # process_graph()
-    process_kg()
+    process_graph()
+    # process_kg()
 
 if __name__ == "__main__":
     main()

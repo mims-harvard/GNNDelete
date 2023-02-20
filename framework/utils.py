@@ -36,6 +36,14 @@ def get_link_labels(pos_edge_index, neg_edge_index):
     return link_labels
 
 @torch.no_grad()
+def get_link_labels_kg(pos_edge_index, neg_edge_index):
+    E = pos_edge_index.size(1) + neg_edge_index.size(1)
+    link_labels = torch.zeros(E, dtype=torch.float, device=pos_edge_index.device)
+    link_labels[:pos_edge_index.size(1)] = 1.
+
+    return link_labels
+
+@torch.no_grad()
 def negative_sampling_kg(edge_index, edge_type):
     '''Generate negative samples but keep the node type the same'''
 
